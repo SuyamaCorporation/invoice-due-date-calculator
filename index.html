@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>請求書 支払期日 計算ツール</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen p-4">
+  <div class="max-w-4xl mx-auto">
+    <h1 class="text-2xl font-bold text-gray-800 mb-6">請求書 支払期日 計算ツール</h1>
+
+    <!-- 入力フォーム -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+      <h2 class="text-lg font-semibold text-gray-700 mb-4">新規追加</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1" for="invoiceLabel">請求書名/摘要</label>
+          <input id="invoiceLabel" type="text" placeholder="例: 株式会社〇〇 10月分" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="請求書名" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1" for="invoiceDate">請求日</label>
+          <input id="invoiceDate" type="date" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="請求日" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1" for="paymentTerm">支払サイト</label>
+          <select id="paymentTerm" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="支払サイト">
+            <option value="month_end_next">月末締め翌月末払い</option>
+            <option value="month_end_next2">月末締め翌々月末払い</option>
+            <option value="20_next_end">20日締め翌月末払い</option>
+            <option value="20_next_20">20日締め翌月20日払い</option>
+            <option value="immediate">即日払い</option>
+            <option value="30days">30日後払い</option>
+            <option value="60days">60日後払い</option>
+            <option value="custom">任意日数</option>
+          </select>
+        </div>
+        <div id="customDaysContainer" class="hidden">
+          <label class="block text-sm font-medium text-gray-600 mb-1" for="customDays">任意日数（日）</label>
+          <input id="customDays" type="number" min="1" max="365" value="30" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="任意日数" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1" for="invoiceAmount">請求金額（円）</label>
+          <input id="invoiceAmount" type="number" min="0" placeholder="例: 100000" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" aria-label="請求金額" />
+        </div>
+      </div>
+      <button id="addBtn" class="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-400" tabindex="0" aria-label="追加">追加</button>
+    </div>
+
+    <!-- 結果テーブル -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-700">計算結果一覧</h2>
+        <div class="flex gap-2">
+          <button id="csvBtn" class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded focus:outline-none focus:ring-2 focus:ring-green-400" tabindex="0" aria-label="CSV出力">CSV出力</button>
+          <button id="clearBtn" class="bg-red-500 hover:bg-red-600 text-white text-sm font-medium px-4 py-2 rounded focus:outline-none focus:ring-2 focus:ring-red-400" tabindex="0" aria-label="全件削除">全件削除</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm" role="grid" aria-label="支払期日一覧">
+          <thead>
+            <tr class="bg-gray-100 text-gray-600 text-left">
+              <th class="px-3 py-2 font-medium" scope="col">請求書名</th>
+              <th class="px-3 py-2 font-medium" scope="col">請求日</th>
+              <th class="px-3 py-2 font-medium" scope="col">支払サイト</th>
+              <th class="px-3 py-2 font-medium" scope="col">金額（円）</th>
+              <th class="px-3 py-2 font-medium" scope="col">支払期日（原則）</th>
+              <th class="px-3 py-2 font-medium" scope="col">支払期日（営業日）</th>
+              <th class="px-3 py-2 font-medium" scope="col">残日数</th>
+              <th class="px-3 py-2 font-medium" scope="col">操作</th>
+            </tr>
+          </thead>
+          <tbody id="resultBody">
+            <tr><td colspan="8" class="text-center text-gray-400 py-6">データがありません。上のフォームから追加してください。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 祝日リスト（参考表示） -->
+    <details class="bg-white rounded-lg shadow p-4 text-sm text-gray-500">
+      <summary class="cursor-pointer font-medium text-gray-600">2026年 日本祝日リスト（組み込み済み）</summary>
+      <div id="holidayList" class="mt-2 flex flex-wrap gap-2"></div>
+    </details>
+  </div>
+
+  <script>
+    // 2026年日本祝日（固定リスト）
+    const HOLIDAYS_2026 = [
+      "2026-01-01","2026-01-12","2026-02-11","2026-02-23","2026-03-20",
+      "2026-04-29","2026-05-03","2026-05-04","2026-05-05","2026-05-06",
+      "2026-07-20","2026-08-11","2026-09-21","2026-09-22","2026-09-23",
+      "2026-10-12","2026-11-03","2026-11-23","2026-12-23"
+    ];
+    const holidaySet = new Set(HOLIDAYS_2026);
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function fmtDate(d) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+    function fmtJp(d) { return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())}`; }
+
+    function isWeekend(d) { const w = d.getDay(); return w === 0 || w === 6; }
+    function isHoliday(d) { return holidaySet.has(fmtDate(d)); }
+    function isNonBusinessDay(d) { return isWeekend(d) || isHoliday(d); }
+
+    function nextBusinessDay(d) {
+      const dt = new Date(d);
+      while (isNonBusinessDay(dt)) {
+        dt.setDate(dt.getDate() + 1);
+      }
+      return dt;
+    }
+
+    function addMonths(d, m) {
+      const dt = new Date(d);
+      dt.setMonth(dt.getMonth() + m);
+      return dt;
+    }
+
+    function getMonthEnd(year, month) {
+      return new Date(year, month + 1, 0);
+    }
+
+    function calcDueDate(invoiceDateStr, term, customDays) {
+      const inv = new Date(invoiceDateStr);
+      let base;
+      switch (term) {
+        case 'month_end_next': {
+          // 月末締め翌月末払い
+          const closingEnd = getMonthEnd(inv.getFullYear(), inv.getMonth());
+          base = getMonthEnd(closingEnd.getFullYear(), closingEnd.getMonth() + 1);
+          break;
+        }
+        case 'month_end_next2': {
+          // 月末締め翌々月末払い
+          const closingEnd2 = getMonthEnd(inv.getFullYear(), inv.getMonth());
+          base = getMonthEnd(closingEnd2.getFullYear(), closingEnd2.getMonth() + 2);
+          break;
+        }
+        case '20_next_end': {
+          // 20日締め翌月末払い
+          // 20日を超えていれば翌月20日締め→翌々月末
+          const day = inv.getDate();
+          let closingMonth;
+          if (day <= 20) {
+            closingMonth = new Date(inv.getFullYear(), inv.getMonth(), 20);
+          } else {
+            closingMonth = new Date(inv.getFullYear(), inv.getMonth() + 1, 20);
+          }
+          base = getMonthEnd(closingMonth.getFullYear(), closingMonth.getMonth() + 1);
+          break;
+        }
+        case '20_next_20': {
+          // 20日締め翌月20日払い
+          const day20 = inv.getDate();
+          let closingMonth20;
+          if (day20 <= 20) {
+            closingMonth20 = new Date(inv.getFullYear(), inv.getMonth(), 20);
+          } else {
+            closingMonth20 = new Date(inv.getFullYear(), inv.getMonth() + 1, 20);
+          }
+          base = new Date(closingMonth20.getFullYear(), closingMonth20.getMonth() + 1, 20);
+          break;
+        }
+        case 'immediate':
+          base = new Date(inv);
+          break;
+        case '30days':
+          base = new Date(inv);
+          base.setDate(base.getDate() + 30);
+          break;
+        case '60days':
+          base = new Date(inv);
+          base.setDate(base.getDate() + 60);
+          break;
+        case 'custom':
+          base = new Date(inv);
+          base.setDate(base.getDate() + (parseInt(customDays) || 30));
+          break;
+        default:
+          base = new Date(inv);
+      }
+      return base;
+    }
+
+    function termLabel(term, customDays) {
+      const map = {
+        'month_end_next': '月末締め翌月末払い',
+        'month_end_next2': '月末締め翌々月末払い',
+        '20_next_end': '20日締め翌月末払い',
+        '20_next_20': '20日締め翌月20日払い',
+        'immediate': '即日払い',
+        '30days': '30日後払い',
+        '60days': '60日後払い',
+        'custom': `任意(${customDays}日後)`,
+      };
+      return map[term] || term;
+    }
+
+    function diffDays(a, b) {
+      return Math.round((b - a) / 86400000);
+    }
+
+    // State
+    let records = [];
+
+    function loadFromStorage() {
+      try {
+        const d = localStorage.getItem('invoice_due_date_v1');
+        if (d) records = JSON.parse(d);
+      } catch(e) { records = []; }
+    }
+
+    function saveToStorage() {
+      localStorage.setItem('invoice_due_date_v1', JSON.stringify(records));
+    }
+
+    function render() {
+      const tbody = document.getElementById('resultBody');
+      while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+      if (records.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 8;
+        td.className = 'text-center text-gray-400 py-6';
+        td.textContent = 'データがありません。上のフォームから追加してください。';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+      const today = new Date();
+      today.setHours(0,0,0,0);
+
+      records.forEach((rec, i) => {
+        const base = new Date(rec.baseDue);
+        const biz = new Date(rec.bizDue);
+        const diff = diffDays(today, biz);
+        const tr = document.createElement('tr');
+        tr.className = i % 2 === 0 ? 'border-b border-gray-100' : 'border-b border-gray-100 bg-gray-50';
+        tr.setAttribute('role', 'row');
+
+        let statusClass = 'text-gray-700';
+        if (diff < 0) statusClass = 'text-red-600 font-bold';
+        else if (diff <= 7) statusClass = 'text-orange-500 font-semibold';
+        else statusClass = 'text-green-600';
+
+        const cells = [
+          rec.label,
+          fmtJp(new Date(rec.invoiceDate)),
+          rec.termLabel,
+          rec.amount ? Number(rec.amount).toLocaleString() + '円' : '-',
+          fmtJp(base),
+          fmtJp(biz),
+          diff < 0 ? `${Math.abs(diff)}日超過` : `${diff}日後`,
+        ];
+
+        cells.forEach((txt, ci) => {
+          const td = document.createElement('td');
+          td.className = 'px-3 py-2' + (ci === 6 ? ' ' + statusClass : '');
+          td.textContent = txt;
+          tr.appendChild(td);
+        });
+
+        const tdBtn = document.createElement('td');
+        tdBtn.className = 'px-3 py-2';
+        const delBtn = document.createElement('button');
+        delBtn.textContent = '削除';
+        delBtn.className = 'text-red-500 hover:text-red-700 text-xs underline focus:outline-none';
+        delBtn.setAttribute('aria-label', `${rec.label}を削除`);
+        delBtn.setAttribute('tabindex', '0');
+        delBtn.addEventListener('click', () => {
+          records.splice(i, 1);
+          saveToStorage();
+          render();
+        });
+        tdBtn.appendChild(delBtn);
+        tr.appendChild(tdBtn);
+        tbody.appendChild(tr);
+      });
+    }
+
+    document.getElementById('paymentTerm').addEventListener('change', function() {
+      document.getElementById('customDaysContainer').classList.toggle('hidden', this.value !== 'custom');
+    });
+
+    document.getElementById('addBtn').addEventListener('click', () => {
+      const label = document.getElementById('invoiceLabel').value.trim() || '（無題）';
+      const invDate = document.getElementById('invoiceDate').value;
+      const term = document.getElementById('paymentTerm').value;
+      const customDays = document.getElementById('customDays').value;
+      const amount = document.getElementById('invoiceAmount').value;
+
+      if (!invDate) { alert('請求日を入力してください。'); return; }
+
+      const base = calcDueDate(invDate, term, customDays);
+      const biz = nextBusinessDay(base);
+
+      records.push({
+        label,
+        invoiceDate: invDate,
+        term,
+        customDays,
+        termLabel: termLabel(term, customDays),
+        amount,
+        baseDue: fmtDate(base),
+        bizDue: fmtDate(biz),
+      });
+      saveToStorage();
+      render();
+
+      document.getElementById('invoiceLabel').value = '';
+      document.getElementById('invoiceDate').value = '';
+      document.getElementById('invoiceAmount').value = '';
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      if (!confirm('全件削除しますか？')) return;
+      records = [];
+      saveToStorage();
+      render();
+    });
+
+    document.getElementById('csvBtn').addEventListener('click', () => {
+      if (records.length === 0) { alert('データがありません。'); return; }
+      const header = ['請求書名','請求日','支払サイト','金額(円)','支払期日(原則)','支払期日(営業日)'];
+      const rows = records.map(r => [
+        r.label, r.invoiceDate, r.termLabel, r.amount,
+        r.baseDue, r.bizDue,
+      ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
+      const csv = '﻿' + [header.join(','), ...rows].join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'invoice-due-dates.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    // 祝日表示
+    const hlDiv = document.getElementById('holidayList');
+    HOLIDAYS_2026.forEach(h => {
+      const sp = document.createElement('span');
+      sp.className = 'bg-red-100 text-red-600 px-2 py-0.5 rounded text-xs';
+      sp.textContent = h;
+      hlDiv.appendChild(sp);
+    });
+
+    loadFromStorage();
+    // デフォルト日付を今日に
+    const todayStr = fmtDate(new Date());
+    document.getElementById('invoiceDate').value = todayStr;
+    render();
+  </script>
+</body>
+</html>
